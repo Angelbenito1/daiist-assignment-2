@@ -6,12 +6,15 @@ Assignment 2: training pipeline (run with `uv run python main.py train`).
 3. Finetune yolo11s and yolo11n from their COCO checkpoints on the cleaned split.
 4. Keep the model with the higher rotten-class recall on the validation split as
    weights/best.pt (the other one is kept for comparison).
+5. Evaluate both against the COCO zero-shot and predict-nothing baselines on the
+   test split (evaluate.py), then sweep the cost threshold (costs.py).
 
 Environment variables:
   RUNS_DIR   where Ultralytics writes runs (default ./runs). Point it at Google
              Drive on Colab: an interrupted run is resumed from its last.pt.
   SMOKE=1    tiny CPU run (1 epoch, 3% of train, yolo11n only) to test the
-             pipeline. Writes its weights to runs/smoke/, never to weights/.
+             pipeline. Writes its weights to runs/smoke/, never to weights/,
+             and stops before evaluation so it never overwrites artifacts/.
 """
 
 import json
@@ -27,7 +30,9 @@ import yaml
 from ultralytics import YOLO
 
 from api_key import load_api_key
+from costs import analyse
 from dataset_stats import describe
+from evaluate import evaluate
 
 ROOT = Path(__file__).resolve().parent
 DATASET = ROOT / "data" / "fruit-v1"
@@ -149,6 +154,14 @@ def main():
     out = ARTIFACTS / ("training_smoke.json" if SMOKE else "training.json")
     out.write_text(json.dumps(summary, indent=2))
     print(f"\nChosen: {chosen} -> {WEIGHTS / 'best.pt'}\nSummary: {out}")
+    if SMOKE:
+        return
+
+    finetuned = {chosen: WEIGHTS / "best.pt"}
+    finetuned.update({m: WEIGHTS / f"{m}_comparison.pt" for m in results if m != chosen})
+    evaluate(finetuned, coco_weights=f"{chosen}.pt", dataset=DATASET, data_config=data,
+             imgsz=TRAIN_ARGS["imgsz"])
+    analyse()
 
 
 if __name__ == "__main__":
