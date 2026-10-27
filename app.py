@@ -74,7 +74,7 @@ def inspect_image(image: Image.Image | None, review_from: float, reject_at: floa
         x1, y1, x2, y2 = f["box"]
         color = DECISION_COLORS[f["decision"]]
         draw.rectangle([x1, y1, x2, y2], outline=color, width=width)
-        draw.text((x1 + 4, y1 + 4), f"#{k} {f['decision'].upper()} {f['rotten_score']:.2f}", fill=color)
+        draw.text((x1 + 4, y1 + 4), f"#{k} {f['decision'].upper()} {f['rotten_score']:.3f}", fill=color)
     table = pd.DataFrame([{"fruit": k, "top box": f["label"], "rotten score": round(f["rotten_score"], 3),
                            "decision": f["decision"]} for k, f in enumerate(fruits, 1)])
     return canvas, table
@@ -105,7 +105,8 @@ def operating_view(review_from: float, reject_at: float, base_rate_pct: float):
     summary = (
         f"### €{cost:,.2f} expected cost per 1,000 fruit\n"
         f"- **Sent to review:** {share:.1%} of fruit, about {share * costs.FRUIT_PER_DAY:,.0f} a day, "
-        f"which takes **{people} reviewer(s)** at {costs.REVIEW['seconds']:.0f} s each. "
+        f"which takes **{share * costs.FRUIT_PER_DAY * costs.REVIEW['seconds'] / 3600:.1f} h** of an operator's "
+        f"time at {costs.REVIEW['seconds']:.0f} s each ({people} person, rounded up). "
         f"That is {status} the capacity of {costs.REVIEW['people']} person ({capacity:.1%}).\n"
         f"- **Rotten fruit caught:** {r['rotten_reject']:.1%} rejected automatically and "
         f"{r['rotten_review']:.1%} reviewed. **Missed:** {r['rotten_pass']:.1%}.\n"
@@ -127,12 +128,12 @@ def cost_curve(review_from: float, reject_at: float, base_rate: float) -> go.Fig
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=val.threshold, y=val.cost_per_1000, name="validation (used to choose)",
                              line={"color": BLUE, "width": 2},
-                             hovertemplate="t = %{x:.2f}<br>€%{y:.1f} per 1,000<extra>validation</extra>"))
+                             hovertemplate="t = %{x:.3f}<br>€%{y:.1f} per 1,000<extra>validation</extra>"))
     fig.add_trace(go.Scatter(x=test.threshold, y=test.cost_per_1000, name="test (reported)",
                              line={"color": ORANGE, "width": 2},
-                             hovertemplate="t = %{x:.2f}<br>€%{y:.1f} per 1,000<extra>test</extra>"))
+                             hovertemplate="t = %{x:.3f}<br>€%{y:.1f} per 1,000<extra>test</extra>"))
     chosen_cost = float(test.loc[np.isclose(test.threshold, chosen), "cost_per_1000"].iloc[0])
-    fig.add_trace(go.Scatter(x=[chosen], y=[chosen_cost], mode="markers", name=f"chosen t = {chosen:.2f}",
+    fig.add_trace(go.Scatter(x=[chosen], y=[chosen_cost], mode="markers", name=f"chosen t = {chosen:g}",
                              marker={"size": 11, "color": ORANGE, "line": {"color": "white", "width": 2}}))
     fig.add_vrect(x0=review_from, x1=min(reject_at, 1.0), fillcolor="#fab219", opacity=0.15, line_width=0,
                   annotation_text="review band", annotation_position="top left")
@@ -149,7 +150,7 @@ def results_tables():
     per_class = pd.read_csv(EVAL_DIR / "per_class_test.csv").round(3)
     by_state = pd.read_csv(EVAL_DIR / "by_state_test.csv").round(3)
     scenarios = pd.read_csv(COSTS_DIR / "scenarios.csv")
-    scenarios = scenarios[["scenario", "people", "checked_per_day", "rotten_shipped_per_day", "fresh_lost_per_day",
+    scenarios = scenarios[["scenario", "people", "checked_per_day", "checking_hours_per_day", "rotten_shipped_per_day", "fresh_lost_per_day",
                            "rotten_share_of_packed", "labour_cost_per_day", "error_cost_per_day",
                            "total_per_day", "total_per_1000"]].round(3)
     return overall, per_class, by_state, scenarios
@@ -162,8 +163,8 @@ with gr.Blocks(title="Rotten fruit sorting") as demo:
         "Each fruit is **passed**, sent for **review**, or **rejected** to industry according to its rotten score. "
         f"Costs: false positive €{costs.COSTS['fp']:.2f}, false negative €{costs.COSTS['fn']:.2f}.")
     with gr.Row():
-        review_slider = gr.Slider(0.01, 1.0, value=DEFAULT_REVIEW, step=0.01, label="Review from (lower threshold)")
-        reject_slider = gr.Slider(0.01, 1.0, value=DEFAULT_REJECT, step=0.01, label="Reject at (upper threshold)")
+        review_slider = gr.Slider(0.001, 1.0, value=DEFAULT_REVIEW, step=0.001, label="Review from (lower threshold)")
+        reject_slider = gr.Slider(0.001, 1.0, value=DEFAULT_REJECT, step=0.001, label="Reject at (upper threshold)")
         base_slider = gr.Slider(0.5, 20, value=costs.BASE_RATE * 100, step=0.5, label="Assumed base rate (% rotten)")
 
     with gr.Tab("Operating point"):
@@ -192,7 +193,8 @@ with gr.Blocks(title="Rotten fruit sorting") as demo:
 
     with gr.Tab("Human review scenarios"):
         gr.Markdown(f"{costs.FRUIT_PER_DAY:,} fruit a day, with thresholds chosen on validation and rates "
-                    "measured on test. Labour is priced at a whole number of people.")
+                    "measured on test. Checking every fruit needs dedicated staff, paid by the shift; "
+                    "the review band is a task for an operator already on the line, paid for the time it takes.")
         gr.Dataframe(scenarios, label="Cost of each way of running the line")
 
     view_inputs = [review_slider, reject_slider, base_slider]

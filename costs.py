@@ -28,7 +28,8 @@ COSTS_DIR = ROOT / "artifacts" / "costs"
 # Business assumptions (REPORT.md, "Business problem")
 COSTS = {"fp": 0.20, "fn": 5.00, "tp": 0.0, "tn": 0.0}
 BASE_RATE = 0.05
-THRESHOLDS = np.round(np.arange(0.01, 1.0, 0.01), 2)  # t = 0 would reject fruit the model never saw
+# Fine steps below 0.01, where the optimum sits; t = 0 would reject fruit the model never saw
+THRESHOLDS = np.round(np.concatenate([np.arange(0.001, 0.01, 0.001), np.arange(0.01, 1.0, 0.01)]), 3)
 
 BLUE, ORANGE, INK, INK_2, SURFACE, GRID = "#2a78d6", "#eb6834", "#0b0b0b", "#52514e", "#fcfcfb", "#e4e3df"
 
@@ -93,7 +94,7 @@ def plot_cost_curve(val: pd.DataFrame, test: pd.DataFrame, chosen: float, refs: 
     test_cost = float(test.loc[np.isclose(test.threshold, chosen), "cost_per_1000"].iloc[0])
     ax.axvline(chosen, color=INK, linewidth=1)
     ax.scatter([chosen], [test_cost], s=60, color=ORANGE, edgecolor=SURFACE, linewidth=2, zorder=3)
-    ax.annotate(f"chosen t = {chosen:.2f}\ntest: €{test_cost:.1f} / 1,000", (chosen, test_cost),
+    ax.annotate(f"chosen t = {chosen:g}\ntest: €{test_cost:.1f} / 1,000", (chosen, test_cost),
                 xytext=(12, 18), textcoords="offset points", fontsize=9, color=INK)
     ax.set_xlabel("rotten-score threshold t (reject if score ≥ t)", color=INK_2)
     ax.set_ylabel("expected cost, € per 1,000 fruit", color=INK_2)
@@ -161,10 +162,13 @@ FULL_INSPECTION = {"seconds": 1.0, "miss_rate": 0.20, "false_reject_rate": 0.05}
 NO_AUTO_REJECT = 1.01  # upper threshold above any score: everything over the lower one goes to a person
 
 
+def eur_per_productive_second() -> float:
+    return LABOUR["eur_per_hour"] * LABOUR["paid_hours"] / LABOUR["productive_hours"] / 3600
+
+
 def review_terms() -> dict:
     """Per-fruit cost of a review: paid time per productive second, times the seconds it takes."""
-    eur_per_second = LABOUR["eur_per_hour"] * LABOUR["paid_hours"] / LABOUR["productive_hours"] / 3600
-    return {"cost": REVIEW["seconds"] * eur_per_second, "miss_rate": REVIEW["miss_rate"],
+    return {"cost": REVIEW["seconds"] * eur_per_productive_second(), "miss_rate": REVIEW["miss_rate"],
             "false_reject_rate": REVIEW["false_reject_rate"]}
 
 
@@ -201,17 +205,25 @@ def best_review_band(scores: pd.DataFrame, base_rate: float = BASE_RATE,
 
 
 def scenario(name: str, r: dict, people: int, seconds_per_check: float, base_rate: float = BASE_RATE,
-             human: dict | None = None) -> dict:
-    """Daily cost of one way of running the line. `human` = error rates of whoever checks the reviewed fruit."""
+             human: dict | None = None, paid_per_check: bool = False) -> dict:
+    """Daily cost of one way of running the line. `human` = error rates of whoever checks the reviewed fruit.
+
+    paid_per_check=False pays `people` whole shifts; True pays only the time spent checking, for a task
+    that an operator already on the line absorbs.
+    """
     human = human or {"miss_rate": 0.0, "false_reject_rate": 0.0}
     n_rotten, n_fresh = FRUIT_PER_DAY * base_rate, FRUIT_PER_DAY * (1 - base_rate)
     rotten_shipped = n_rotten * (r["rotten_pass"] + r["rotten_review"] * human["miss_rate"])
     fresh_lost = n_fresh * (r["fresh_reject"] + r["fresh_review"] * human["false_reject_rate"])
     fresh_shipped = n_fresh - fresh_lost
     errors = rotten_shipped * COSTS["fn"] + fresh_lost * COSTS["fp"]
-    labour = people * LABOUR["paid_hours"] * LABOUR["eur_per_hour"]
     checked = FRUIT_PER_DAY * review_share(r, base_rate)
+    if paid_per_check:
+        labour = checked * seconds_per_check * eur_per_productive_second()
+    else:
+        labour = people * LABOUR["paid_hours"] * LABOUR["eur_per_hour"]
     return {"scenario": name, "people": people, "checked_per_day": round(checked),
+            "checking_hours_per_day": checked * seconds_per_check / 3600,
             "share_checked": review_share(r, base_rate),
             "rotten_shipped_per_day": rotten_shipped, "fresh_lost_per_day": fresh_lost,
             "rotten_share_of_packed": rotten_shipped / (rotten_shipped + fresh_shipped),
@@ -229,9 +241,10 @@ def scenarios(test_scores: pd.DataFrame, chosen: float, review_from: float, reje
         scenario("do nothing (no sorting)", nothing, 0, 0),
         scenario("a person checks every fruit", everything,
                  people_needed(1.0, FULL_INSPECTION["seconds"]), FULL_INSPECTION["seconds"], human=FULL_INSPECTION),
-        scenario(f"model alone (reject if score >= {chosen:.2f})", rates(test_scores, chosen), 0, 0),
-        scenario(f"model + review (review {review_from:.2f}-{reject_at:.2f}, reject >= {reject_at:.2f})", band,
-                 people_needed(review_share(band), REVIEW["seconds"]), REVIEW["seconds"], human=REVIEW),
+        scenario(f"model alone (reject if score >= {chosen:g})", rates(test_scores, chosen), 0, 0),
+        scenario(f"model + review by a line operator (review {review_from:g}-{reject_at:g}, reject >= {reject_at:g})",
+                 band, people_needed(review_share(band), REVIEW["seconds"]), REVIEW["seconds"], human=REVIEW,
+                 paid_per_check=True),
     ])
 
 
