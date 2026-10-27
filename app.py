@@ -50,7 +50,8 @@ def inspect_image(image: Image.Image | None, review_from: float, reject_at: floa
     if image is None:
         return None, pd.DataFrame()
     review_from, reject_at = sorted((review_from, reject_at))
-    result = MODEL.predict(image, conf=0.01, iou=0.7, imgsz=640, verbose=False)[0]
+    # Same confidence floor as evaluate.predict, so the thresholds mean the same here as in the analysis
+    result = MODEL.predict(image, conf=0.001, iou=0.7, imgsz=640, verbose=False)[0]
     boxes = result.boxes.xyxy.cpu().numpy()
     cls = result.boxes.cls.int().cpu().numpy()
     conf = result.boxes.conf.cpu().numpy()
