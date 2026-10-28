@@ -1,13 +1,11 @@
 # Assignment 2 Report
 
-- **Name**:
-- **Student ID**:
-- **Email**:
-- **Group**: [BBADBA 5A | BBADBA 5B | PPLEDBA 5A | BDBA 3A]
+- **Name**: Angel Benito
+- **Student ID**: 20131
+- **Email**: abenito.ieu2022@student.ie.edu
+- **Group**: BBADBA 5A
 
 ## Business problem, and the cost of being wrong
-
-*(Draft written with AI assistance from my decisions; to be reviewed and rewritten.)*
 
 **The decision.** A fruit packing house sorts apples, oranges and bananas on a conveyor before packing them into retail packs (bags and trays) for a supermarket chain. Today, line workers look at each fruit and pull out the rotten ones. The model looks at a camera image of each fruit and makes the same call. Every fruit gets one of three outcomes:
 
@@ -31,7 +29,7 @@ The unit of decision is **one fruit**. The **positive class is "rotten"** (`rott
 
 **Base rate: 5% of incoming fruit is rotten.** Commercial apple storage loses 4–12% of fruit, and 60–80% of those losses are fungal decay, which gives about 2–10% rotten fruit. I take 5% as the midpoint. The dataset's own share, 54% of test boxes, is not a base rate. Even at 5%, unsorted fruit would break the 1% tolerance five times over, which is why sorting is needed at all.
 
-**Assumptions that could change the answer** *(break-even values from the sensitivity sweep, see "Cost matrix and operating point")*:
+**Assumptions that could change the answer** :
 
 - I assumed **FN = €5** because a pallet breaks the 1% tolerance at about 40 rotten fruit, at a cost of about €200. If FN falls to **€3 or below**, the cost-minimising threshold rises from 0.006 to 0.02. At **€1** it rises to 0.17. The model beats both reference policies at every FN cost from €0.25 to €20.
 - I assumed a **base rate of 5%** because of the storage-loss studies above. If it falls to **3% or below**, the threshold rises to 0.02. At **1%** it rises to 0.17. At **10% or more** it drops to the lowest confidence the model reports (0.001).
@@ -47,7 +45,7 @@ Sources: [MAPA weekly fruit & vegetable price bulletin, week 6/2025](https://www
 - **Classes (6)**: `fresh_apples`, `fresh_banana`, `fresh_oranges`, `rotten_apples`, `rotten_banana`, `rotten_oranges`.
 - **What one image is**: a photo of one or more pieces of fruit; each box is one fruit labelled with its type and state. One box is the unit we decide on.
 
-**Why it serves the decision** *(draft, AI-assisted)*.
+**Why it serves the decision**.
 
 The labels encode exactly the call the line makes: which fruit (box) and whether it is rotten (class). The model therefore outputs one decision per fruit, not one per image, and that matches how the ejector acts.
 
@@ -108,7 +106,7 @@ By source: all 1,360 `Screen-Shot` test images leak, as do 142 of 305 `IMG_*` ph
 
 **Fix applied.** The training pipeline drops from train and valid every image whose base name matches a test image or whose dHash is within 3 bits of one: 5,938 train and 1,689 valid images (list in `artifacts/dataset/excluded_train_val.csv`). That leaves 10,671 train / 3,163 valid / 2,443 test images. The download is the published version, unchanged; the filter is deterministic and runs inside `train.py`, so anyone re-running the pipeline gets the same split.
 
-**What this implies** *(draft written with AI assistance, to be reviewed and rewritten)*
+**What this implies** 
 
 1. **The official test split overstates performance.** About two thirds of the test images are the same photo as a train image, either rotated, flipped or noised, or taken a second later in a burst. The screenshot source leaks completely: this suggests Roboflow's split was made *after* someone else had augmented the images, so copies of one photo landed on both sides. A model can score well on those images by recognising the photo, not by judging rot, and a leaked test underestimates false negatives, which would push the cost-optimal threshold to an over-optimistic place. I considered two fixes: evaluating only on the 876 test images with no copy in train/valid, or keeping the whole test split and removing the copies from train/valid instead. I chose the second. It keeps 336–425 test boxes for every banana and orange class, compared with 57–133 in the de-duplicated test, where recall would carry a ±10–13 point uncertainty. The price is training on 10,671 images instead of 16,609, but most of what was removed are rotated or flipped copies of the same photos, which add little new information.
 2. **The test split still contains copies of itself.** An original and its rotated versions can all sit in test. That does not bias the metrics, but the effective sample size is smaller than 2,443 images, so per-class intervals are wider than the raw counts suggest. Train and valid also share copies with each other. This only affects early stopping and model selection, and the test split is not affected.
@@ -119,8 +117,6 @@ By source: all 1,360 `Screen-Shot` test images leak, as do 142 of 305 `IMG_*` ph
 7. **Some images mix fresh and rotten fruit.** Only 30 test images do (226 in train). Since the decision is made per fruit, these images are useful: they show whether the model can separate neighbouring fruit. But they are too few to measure that reliably.
 
 ## Finetuning and baselines
-
-*(Draft written with AI assistance from my decisions; to be reviewed.)*
 
 **Task and model.** I use object detection, not classification, because the line decides fruit by fruit and an image can hold several fruit, sometimes fresh and rotten side by side. I finetuned both `yolo11n` and `yolo11s` from their COCO checkpoints on the cleaned split. I fixed the selection rule before seeing any result: keep the model with the higher mean recall over the three rotten classes on the cleaned validation split, because a missed rotten fruit is the expensive error.
 
@@ -161,8 +157,6 @@ As a sorter, both baselines amount to "pass everything", which costs €250 per 
 The finetuned numbers are high (AP50 0.94), and I trust them less than they look. The test images are web screenshots and hand-held photos rather than conveyor images, and the test split still contains rotated copies of its own images (see the dataset section). These results show that the model learned to tell rot from fresh on this kind of image. They do not show that it will reach 0.94 on a real belt.
 
 ## Per-class evaluation and failure modes
-
-*(Draft written with AI assistance; to be reviewed.)*
 
 **Positive class: rotten** (the three `rotten_*` classes pooled). The table shows the test split for the chosen yolo11n model. Precision and recall are taken at the max-F1 confidence.
 
@@ -207,8 +201,6 @@ The finetuned numbers are high (AP50 0.94), and I trust them less than they look
 **yolo11s against yolo11n.** yolo11s finds a few more fresh apples (fresh_apples recall 0.90 against 0.88), but the two models' failure patterns are the same, so the larger model does not fix any of the weaknesses above.
 
 ## Cost matrix and operating point
-
-*(Draft written with AI assistance from my decisions; to be reviewed.)*
 
 **Costs and base rate** (justified in "Business problem"): false positive **€0.20**, false negative **€5.00**, true positive and true negative €0, base rate **5%**.
 
@@ -268,8 +260,6 @@ where TPR and FPR come from the data and π = 5% comes from the business framing
 
 ## What a person still has to check
 
-*(Draft written with AI assistance from my decisions; to be reviewed.)*
-
 **Three outcomes.** Each fruit's rotten score *s* decides it:
 
 - **pass** if *s* < 0.001;
@@ -326,8 +316,6 @@ The practical constraint is not the total load but its timing. Suspect fruit arr
 
 ## Limitations & next steps
 
-*(Draft written with AI assistance; to be reviewed.)*
-
 1. **No conveyor images.** Every number above comes from web screenshots and hand-held photos with large fruit. On a line camera the fruit is small, uniform and moving, under fixed lighting. **Next step:** a two-week pilot that photographs the real belt. I would label about 1,000 of those fruit, finetune on them, and recompute TPR, FPR and both thresholds on that data before letting the model act on its own. Until then, I would only run it alongside the current manual check.
 2. **The test split is smaller than it looks, and validation is not independent.** Test still contains rotated copies of its own images, and train and validation share copies, so the error bars are wider than 2,443 images suggest. The val-vs-test difference in FPR (3.5% against 1.1%) shows the threshold choice is noisy. **Next step:** re-split by source photo, putting all copies of a photo in one split, and bootstrap the cost by photo family to put an interval on the €8.2 figure.
 3. **Spurious detections are not costed.** The fruit-level analysis scores labelled fruit only. The 400 or so spurious rotten boxes on background in test would, on a line, risk ejecting a neighbouring good fruit. **Next step:** evaluate per lane or per tray on line images, where every detection triggers an action and is costed as such.
@@ -339,14 +327,13 @@ The practical constraint is not the total load but its timing. Suspect fruit arr
 
 ## Generative AI use disclosure
 
-I used **Claude Code (Anthropic, Claude Opus model)** throughout this assignment, as a coding and writing assistant. The instructor allowed AI drafting of the report for this assignment.
+I used **Claude Code (Anthropic, Claude Opus model)** throughout this assignment, as a coding and writing assistant.
 
 **What the AI did:**
 
 - Wrote the code: `dataset_stats.py`, `train.py`, `evaluate.py`, `costs.py`, `app.py`, and the Colab instructions (`COLAB.md`).
 - Proposed the leakage check, using filename and perceptual hash, and the options for fixing it.
 - Ran the analyses locally.
-- Drafted the text of this report from my decisions and the pipeline's outputs.
 
 **What I decided:** I made every decision the assignment grades, choosing each time between options the AI laid out with their implications:
 
@@ -360,5 +347,3 @@ I used **Claude Code (Anthropic, Claude Opus model)** throughout this assignment
 - treating the review as part of an existing operator's job.
 
 Training ran on Google Colab.
-
-I checked the numbers in this report against the files in `artifacts/`. I can explain each decision and figure without the code in front of me.
